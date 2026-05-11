@@ -174,7 +174,14 @@ module.exports = async function handler(req, res) {
           profiles: undefined, categories: undefined, shops: undefined
         }
       })
-      if (uLat&&uLng) rows.sort((a,b)=>(a.distance_km??999)-(b.distance_km??999))
+      // Always include requester's own requests regardless of distance
+      // For others: filter by radius if location known
+      if (uLat&&uLng) {
+        const user = await getUser(req)
+        const userId = user?.id
+        rows = rows.filter(r => r.requester_id === userId || r.distance_km == null || r.distance_km <= (parseFloat(req.query.radius)||999))
+        rows.sort((a,b)=>(a.distance_km??999)-(b.distance_km??999))
+      }
       return res.json(rows)
     }
     const user = await getUser(req)
