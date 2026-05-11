@@ -1,4 +1,4 @@
-import { createClient } from '@supabase/supabase-js'
+const { createClient } = require('@supabase/supabase-js')
 
 const SUPABASE_URL = process.env.SUPABASE_URL
 const SERVICE_KEY  = process.env.SUPABASE_SERVICE_KEY
@@ -25,7 +25,7 @@ async function isAdmin(userId) {
 
 const DAY_KEYS = ['su','mo','tu','we','th','fr','sa']
 
-export default async function handler(req, res) {
+module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS')
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization')
@@ -34,6 +34,8 @@ export default async function handler(req, res) {
   const url   = req.url.replace(/^\/api/, '').split('?')[0]
   const parts = url.split('/').filter(Boolean)
   const route = parts[0]
+
+  try {
 
   // ── POST /register ──────────────────────────────────────────────────────────
   if (route === 'register' && req.method === 'POST') {
@@ -83,7 +85,7 @@ export default async function handler(req, res) {
     return res.json(data || [])
   }
 
-  // ── GET /shops  POST /shops  PATCH /shops/:id ────────────────────────────────
+  // ── Shops ────────────────────────────────────────────────────────────────────
   if (route === 'shops') {
     if (req.method === 'GET' && !parts[1]) {
       const { lat, lng, radius } = req.query
@@ -118,7 +120,7 @@ export default async function handler(req, res) {
     }
   }
 
-  // ── GET /requests  POST /requests  PATCH/DELETE /requests/:id ────────────────
+  // ── Requests ─────────────────────────────────────────────────────────────────
   if (route === 'requests') {
     if (req.method === 'GET' && !parts[1]) {
       const { lat, lng } = req.query
@@ -151,10 +153,8 @@ export default async function handler(req, res) {
       if (uLat&&uLng) rows.sort((a,b)=>(a.distance_km??999)-(b.distance_km??999))
       return res.json(rows)
     }
-
     const user = await getUser(req)
     if (!user) return res.status(401).json({ error: 'Nicht eingeloggt' })
-
     if (req.method === 'POST') {
       const { items, item_text, category_id, shop_id, shop_name_free, needed_by, delivery_address } = req.body
       if (!needed_by) return res.status(400).json({ error: 'Pflichtfelder fehlen' })
@@ -176,21 +176,19 @@ export default async function handler(req, res) {
       }
       return res.json(data)
     }
-
     if (parts[1]) {
       const id = parts[1]
       const { data: r } = await sb().from('requests').select('requester_id,status').eq('id', id).single()
       if (!r) return res.status(404).json({ error: 'Nicht gefunden' })
-      const admin = await isAdmin(user.id)
-      if (r.requester_id !== user.id && !admin) return res.status(403).json({ error: 'Keine Berechtigung' })
-
+      const admin = await isAdmin(user?.id)
+      if (r.requester_id !== user?.id && !admin) return res.status(403).json({ error: 'Keine Berechtigung' })
       if (req.method === 'PATCH') {
         const update = {}
         const { status, items, item_text, needed_by, delivery_address, shop_name_free } = req.body
-        if (status           !== undefined) update.status           = status
-        if (items            !== undefined) { update.items = items; update.item_text = items.map(i=>i.text).join(', ') }
-        if (item_text        !== undefined) update.item_text        = item_text
-        if (needed_by        !== undefined) update.needed_by        = needed_by
+        if (status !== undefined) update.status = status
+        if (items  !== undefined) { update.items = items; update.item_text = items.map(i=>i.text).join(', ') }
+        if (item_text !== undefined) update.item_text = item_text
+        if (needed_by !== undefined) update.needed_by = needed_by
         if (delivery_address !== undefined) update.delivery_address = delivery_address
         if (shop_name_free   !== undefined) update.shop_name_free   = shop_name_free
         const { data } = await sb().from('requests').update(update).eq('id', id).select().single()
@@ -219,7 +217,7 @@ export default async function handler(req, res) {
     return res.json({ ok: true })
   }
 
-  // ── GET /my/requests  GET /my/assignments ────────────────────────────────────
+  // ── /my/* ────────────────────────────────────────────────────────────────────
   if (route === 'my') {
     const user = await getUser(req)
     if (!user) return res.status(401).json({ error: 'Nicht eingeloggt' })
@@ -249,12 +247,11 @@ export default async function handler(req, res) {
     } catch { return res.json({ title: null, description: null, favicon: null, url }) }
   }
 
-  // ── Admin routes ─────────────────────────────────────────────────────────────
+  // ── /admin/* ──────────────────────────────────────────────────────────────────
   if (route === 'admin') {
     const user = await getUser(req)
     if (!user) return res.status(401).json({ error: 'Nicht eingeloggt' })
     if (!await isAdmin(user.id)) return res.status(403).json({ error: 'Kein Zugriff' })
-
     if (parts[1] === 'stats') {
       const [u, r, a, s] = await Promise.all([
         sb().from('profiles').select('*', { count: 'exact', head: true }),
@@ -265,19 +262,16 @@ export default async function handler(req, res) {
       const reqs = r.data||[]
       return res.json({ users: u.count, requests: reqs.length, open: reqs.filter(x=>x.status==='open').length, assigned: reqs.filter(x=>x.status==='assigned').length, completed: reqs.filter(x=>x.status==='completed').length, cancelled: reqs.filter(x=>x.status==='cancelled').length, assignments: a.count, shops: s.count })
     }
-
     if (parts[1] === 'users' && req.method === 'GET') {
       const { data } = await sb().from('profiles').select('*').order('created_at')
       return res.json(data||[])
     }
-
     if (parts[1] === 'users' && parts[2] && req.method === 'PATCH') {
       const { role } = req.body
       if (!['orderer','bringer','both','superadmin'].includes(role)) return res.status(400).json({ error: 'Ungültige Rolle' })
       const { data } = await sb().from('profiles').update({ role }).eq('id', parts[2]).select().single()
       return res.json(data)
     }
-
     if (parts[1] === 'users' && parts[2] && req.method === 'DELETE') {
       const id = parts[2]
       if (id === user.id) return res.status(400).json({ error: 'Eigenen Account nicht löschbar' })
@@ -287,12 +281,16 @@ export default async function handler(req, res) {
       await sb().auth.admin.deleteUser(id)
       return res.json({ ok: true })
     }
-
     if (parts[1] === 'requests') {
       const { data } = await sb().from('requests').select('*, profiles!requester_id(first_name,last_name,email), categories(name,icon), shops(name)').order('created_at', { ascending: false })
       return res.json((data||[]).map(r => ({ ...r, requester_first: r.profiles?.first_name, requester_last: r.profiles?.last_name, requester_email: r.profiles?.email, category_name: r.categories?.name, category_icon: r.categories?.icon, shop_name: r.shops?.name, profiles: undefined, categories: undefined, shops: undefined })))
     }
   }
 
-  res.status(404).json({ error: 'Route nicht gefunden' })
+  return res.status(404).json({ error: 'Route nicht gefunden' })
+
+  } catch(err) {
+    console.error('API Error:', err)
+    return res.status(500).json({ error: err.message || 'Interner Serverfehler' })
+  }
 }

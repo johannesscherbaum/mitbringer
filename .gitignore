@@ -5,3 +5,4 @@ dist/
 db.json
 *.db
 .DS_Store
+.vercel
