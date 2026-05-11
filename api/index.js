@@ -93,25 +93,33 @@ module.exports = async function handler(req, res) {
       const uLng = lng ? parseFloat(lng) : null
       const uRadius = radius ? parseFloat(radius) : 20
 
-      // Fetch all shops with pagination
-      let shops = [], from = 0, pageSize = 1000
-      while (true) {
-        const { data, error } = await sb().from('shops').select('*').order('name').range(from, from + pageSize - 1)
-        if (error || !data || data.length === 0) break
-        shops = shops.concat(data)
-        if (data.length < pageSize) break
-        from += pageSize
+      if (uLat && uLng) {
+        // Use PostGIS-style bounding box to pre-filter in DB before fetching
+        // 1 degree lat ≈ 111km, 1 degree lng ≈ 111km * cos(lat)
+        const latDelta = uRadius / 111
+        const lngDelta = uRadius / (111 * Math.cos(uLat * Math.PI / 180))
+        const minLat = uLat - latDelta, maxLat = uLat + latDelta
+        const minLng = uLng - lngDelta, maxLng = uLng + lngDelta
+
+        const { data: shops } = await sb().from('shops').select('*')
+          .gte('lat', minLat).lte('lat', maxLat)
+          .gte('lng', minLng).lte('lng', maxLng)
+          .order('name')
+          .limit(2000)
+
+        if (!shops) return res.json([])
+
+        const result = shops
+          .map(s => ({ ...s, distance_km: s.lat && s.lng ? parseFloat(distKm(uLat, uLng, s.lat, s.lng).toFixed(1)) : null }))
+          .filter(s => s.distance_km == null || s.distance_km <= uRadius)
+          .sort((a, b) => (a.distance_km ?? 999) - (b.distance_km ?? 999))
+
+        return res.json(result)
       }
 
-      if (uLat && uLng) {
-        shops = shops.map(s => ({
-          ...s,
-          distance_km: s.lat && s.lng ? parseFloat(distKm(uLat, uLng, s.lat, s.lng).toFixed(1)) : null
-        }))
-        shops = shops.filter(s => s.distance_km == null || s.distance_km <= uRadius)
-        shops.sort((a,b) => (a.distance_km??999)-(b.distance_km??999))
-      }
-      return res.json(shops)
+      // No location — return first 500 alphabetically
+      const { data: shops } = await sb().from('shops').select('*').order('name').limit(500)
+      return res.json(shops || [])
     }
     const user = await getUser(req)
     if (!user) return res.status(401).json({ error: 'Nicht eingeloggt' })
