@@ -93,7 +93,7 @@ export default function ProfilePage() {
   }
 
   const initials  = profile ? `${profile.first_name[0]}${profile.last_name[0]}`.toUpperCase() : '?'
-  const isBringer = profile?.role === 'bringer' || profile?.role === 'both'
+  const isBringer = profile?.role === 'bringer' || profile?.role === 'both' || profile?.role === 'superadmin'
   const roleLabel = { orderer:'🛒 Besteller', bringer:'🚶 Mitbringer', both:'🤝 Beides', superadmin:'⚙️ Superadmin' }[profile?.role ?? 'orderer']
 
   return (
