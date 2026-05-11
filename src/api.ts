@@ -33,7 +33,7 @@ export const api = {
   updateShop:    (id: number, body: unknown) => req<any>('PATCH', `/shops/${id}`,    body,      true),
   fetchWebsite:  (url: string)              => req<any>('GET',   `/fetch-website?url=${encodeURIComponent(url)}`, undefined, true),
 
-  requests:      (lat?: number, lng?: number) => { const p = new URLSearchParams(); if (lat != null) p.set('lat', String(lat)); if (lng != null) p.set('lng', String(lng)); return req<any[]>('GET', `/requests${p.toString() ? '?' + p : ''}`); },
+  requests:      (lat?: number, lng?: number, all?: boolean) => { const p = new URLSearchParams(); if (lat != null) p.set('lat', String(lat)); if (lng != null) p.set('lng', String(lng)); if (all) p.set('all', '1'); return req<any[]>('GET', `/requests${p.toString() ? '?' + p : ''}`); },
   createRequest: (body: unknown)        => req<any>('POST',  '/requests',            body,      true),
   cancelRequest: (id: number)           => req<any>('PATCH', `/requests/${id}/cancel`, {},      true),
   updateRequest: (id: number, body: unknown) => req<any>('PATCH', `/requests/${id}`,       body,    true),

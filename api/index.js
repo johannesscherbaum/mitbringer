@@ -145,10 +145,12 @@ module.exports = async function handler(req, res) {
   // ── Requests ─────────────────────────────────────────────────────────────────
   if (route === 'requests') {
     if (req.method === 'GET' && !parts[1]) {
-      const { lat, lng } = req.query
-      const { data: reqs } = await sb().from('requests')
+      const { lat, lng, all } = req.query
+      let query = sb().from('requests')
         .select('*, profiles!requester_id(first_name,last_name,email,phone), categories(name,icon), shops(name,lat,lng,opening_hours)')
-        .in('status', ['open','assigned']).order('needed_by')
+        .order('needed_by')
+      if (!all) query = query.in('status', ['open','assigned'])
+      const { data: reqs } = await query
       if (!reqs) return res.json([])
       const reqIds = reqs.map(r => r.id)
       const { data: asgns } = await sb().from('assignments')

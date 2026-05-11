@@ -223,11 +223,14 @@ export default function FeedPage() {
   const [shopFilter,   setShopFilter]   = useState('')
   const [statusFilter, setStatusFilter] = useState<'all'|'open'|'assigned'>('all')
 
-  useEffect(() => { load() }, [userLoc.lat, userLoc.lng])
+  const isAdmin = profile?.role === 'superadmin'
+  const [showAll, setShowAll] = useState(false)
+
+  useEffect(() => { load() }, [userLoc.lat, userLoc.lng, showAll])
 
   async function load() {
     setLoading(true)
-    try { setRows(await api.requests(userLoc.lat, userLoc.lng)) } catch {}
+    try { setRows(await api.requests(userLoc.lat, userLoc.lng, showAll)) } catch {}
     setLoading(false)
   }
 
@@ -287,7 +290,14 @@ export default function FeedPage() {
         {(catFilter || shopFilter || statusFilter !== 'all') && (
           <button className="btn btn-sm" onClick={() => { setCatFilter(''); setShopFilter(''); setStatusFilter('all') }}>✕</button>
         )}
-        <span style={{ marginLeft: 'auto', fontSize: 12, color: 'var(--gray-400)' }}>{filtered.length} Anfragen</span>
+        {isAdmin && (
+          <button className={`btn btn-sm${showAll ? ' btn-primary' : ''}`}
+            style={{ marginLeft: 'auto' }}
+            onClick={() => setShowAll(v => !v)}>
+            {showAll ? '⚙️ Alle' : '⚙️ Nur aktive'}
+          </button>
+        )}
+        <span style={{ fontSize: 12, color: 'var(--gray-400)' }}>{filtered.length} Anfragen</span>
       </div>
 
       {flash && <div className="alert alert-info">{flash}</div>}
