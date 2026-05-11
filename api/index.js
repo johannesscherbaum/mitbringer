@@ -89,12 +89,26 @@ module.exports = async function handler(req, res) {
   if (route === 'shops') {
     if (req.method === 'GET' && !parts[1]) {
       const { lat, lng, radius } = req.query
-      let { data: shops } = await sb().from('shops').select('*').order('name')
-      if (!shops) return res.json([])
-      if (lat && lng) {
-        const uLat = parseFloat(lat), uLng = parseFloat(lng)
-        shops = shops.map(s => ({ ...s, distance_km: s.lat && s.lng ? parseFloat(distKm(uLat,uLng,s.lat,s.lng).toFixed(1)) : null }))
-        if (radius) shops = shops.filter(s => s.distance_km == null || s.distance_km <= parseFloat(radius))
+      const uLat = lat ? parseFloat(lat) : null
+      const uLng = lng ? parseFloat(lng) : null
+      const uRadius = radius ? parseFloat(radius) : 20
+
+      // Fetch all shops with pagination
+      let shops = [], from = 0, pageSize = 1000
+      while (true) {
+        const { data, error } = await sb().from('shops').select('*').order('name').range(from, from + pageSize - 1)
+        if (error || !data || data.length === 0) break
+        shops = shops.concat(data)
+        if (data.length < pageSize) break
+        from += pageSize
+      }
+
+      if (uLat && uLng) {
+        shops = shops.map(s => ({
+          ...s,
+          distance_km: s.lat && s.lng ? parseFloat(distKm(uLat, uLng, s.lat, s.lng).toFixed(1)) : null
+        }))
+        shops = shops.filter(s => s.distance_km == null || s.distance_km <= uRadius)
         shops.sort((a,b) => (a.distance_km??999)-(b.distance_km??999))
       }
       return res.json(shops)
