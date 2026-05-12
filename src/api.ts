@@ -19,6 +19,7 @@ export const api = {
   login:         (email: string, pw: string) => req<any>('POST', '/login', { email, password: pw }),
   me:            ()                     => req<any>('GET',   '/me',                  undefined, true),
   updateMe:      (body: unknown)        => req<any>('PATCH', '/me',                  body,      true),
+  deleteMe:      ()                     => req<any>('DELETE', '/me',                  undefined, true),
 
   categories:    ()                     => req<any[]>('GET', '/categories'),
   shops:         (lat?: number, lng?: number, radius?: number) => {

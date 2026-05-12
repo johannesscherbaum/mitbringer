@@ -45,6 +45,15 @@ export default function ProfilePage() {
 
   function showFlash(msg: string) { setFlash(msg); setTimeout(() => setFlash(''), 3000) }
 
+  async function deleteAccount() {
+    if (!confirm('Konto wirklich löschen? Alle deine Anfragen und Daten werden dauerhaft gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.')) return
+    if (!confirm('Bist du sicher? Das Konto wird unwiderruflich gelöscht.')) return
+    try {
+      await api.deleteMe()
+      signOut()
+    } catch (e: any) { showFlash('Fehler: ' + e.message) }
+  }
+
   async function saveProfile() {
     setSaving(true)
     try {
@@ -110,13 +119,20 @@ export default function ProfilePage() {
 
       {/* Profile header */}
       <div className="card" style={{ marginBottom: 16 }}>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 14 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 14, marginBottom: 14 }}>
           <div className="avatar" style={{ width: 50, height: 50, fontSize: 18 }}>{initials}</div>
-          <div>
+          <div style={{ flex: 1 }}>
             <div style={{ fontWeight: 600, fontSize: 17 }}>{profile?.first_name} {profile?.last_name}</div>
             <div style={{ fontSize: 13, color: 'var(--gray-400)' }}>{roleLabel}{profile?.city ? ` · ${profile.city}` : ''}</div>
           </div>
-          <button className="btn btn-danger btn-sm" style={{ marginLeft: 'auto' }} onClick={signOut}>Abmelden</button>
+        </div>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button className="btn btn-primary" style={{ flex: 1 }} onClick={signOut}>
+            ← Abmelden
+          </button>
+          <button className="btn btn-danger btn-sm" onClick={deleteAccount}>
+            🗑 Konto löschen
+          </button>
         </div>
       </div>
 

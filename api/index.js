@@ -96,6 +96,15 @@ module.exports = async function handler(req, res) {
   if (route === 'me') {
     const user = await getUser(req)
     if (!user) return res.status(401).json({ error: 'Nicht eingeloggt' })
+
+    if (req.method === 'DELETE') {
+      await sb().from('assignments').delete().eq('bringer_id', user.id)
+      await sb().from('requests').delete().eq('requester_id', user.id)
+      await sb().from('profiles').delete().eq('id', user.id)
+      await sb().auth.admin.deleteUser(user.id)
+      return res.json({ ok: true })
+    }
+
     if (req.method === 'GET') {
       const { data } = await sb().from('profiles').select('*').eq('id', user.id).single()
       return res.json(data)
