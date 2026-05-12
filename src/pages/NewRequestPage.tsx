@@ -35,9 +35,12 @@ export default function NewRequestPage({ onCreated }: { onCreated: () => void })
 
   useEffect(() => {
     api.categories().then(setCats).catch(() => {})
-    api.shops(userLoc.lat, userLoc.lng).then(setShops).catch(() => {})
     if (profile?.address) setDelivery([profile.address, profile.city].filter(Boolean).join(', '))
-  }, [profile, userLoc.lat, userLoc.lng])
+  }, [profile?.id])
+
+  useEffect(() => {
+    api.shops(userLoc.lat, userLoc.lng).then(setShops).catch(() => {})
+  }, [userLoc.lat, userLoc.lng])
 
   // Shop suggestions from items text
   useEffect(() => {

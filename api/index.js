@@ -147,10 +147,14 @@ module.exports = async function handler(req, res) {
     if (req.method === 'GET' && !parts[1]) {
       const { lat, lng, all } = req.query
       let query = sb().from('requests')
-        .select('*, profiles!requester_id(first_name,last_name,email,phone), categories(name,icon), shops(name,lat,lng,opening_hours)')
+        .select(`*,
+          requester:profiles!requester_id(first_name,last_name,email,phone),
+          category:categories(name,icon),
+          shop:shops(name,lat,lng,opening_hours)`)
         .order('needed_by')
       if (!all) query = query.in('status', ['open','assigned'])
-      const { data: reqs } = await query
+      const { data: reqs, error: reqErr } = await query
+      if (reqErr) console.error('requests query error:', reqErr.message)
       if (!reqs) return res.json([])
       const reqIds = reqs.map(r => r.id)
       const { data: asgns } = await sb().from('assignments')
@@ -160,18 +164,19 @@ module.exports = async function handler(req, res) {
       const today = DAY_KEYS[new Date().getDay()]
       const uLat = lat ? parseFloat(lat) : null, uLng = lng ? parseFloat(lng) : null
       let rows = reqs.map(r => {
-        const a = asgMap[r.id], oh = r.shops?.opening_hours
+        const a = asgMap[r.id]
+        const oh = r.shop?.opening_hours
         return {
           ...r,
-          requester_first: r.profiles?.first_name, requester_last: r.profiles?.last_name,
-          requester_email: r.profiles?.email, requester_phone: r.profiles?.phone,
-          category_name: r.categories?.name, category_icon: r.categories?.icon,
-          shop_name: r.shops?.name,
+          requester_first: r.requester?.first_name, requester_last: r.requester?.last_name,
+          requester_email: r.requester?.email, requester_phone: r.requester?.phone,
+          category_name: r.category?.name, category_icon: r.category?.icon,
+          shop_name: r.shop?.name,
           shop_hours_today: oh ? (oh[today]||null) : undefined,
           bringer_id: a?.bringer_id||null, bringer_first: a?.profiles?.first_name||null,
           bringer_last: a?.profiles?.last_name||null, bringer_phone: a?.profiles?.phone||null,
-          distance_km: (uLat&&uLng&&r.shops?.lat&&r.shops?.lng) ? parseFloat(distKm(uLat,uLng,r.shops.lat,r.shops.lng).toFixed(1)) : null,
-          profiles: undefined, categories: undefined, shops: undefined
+          distance_km: (uLat&&uLng&&r.shop?.lat&&r.shop?.lng) ? parseFloat(distKm(uLat,uLng,r.shop.lat,r.shop.lng).toFixed(1)) : null,
+          requester: undefined, category: undefined, shop: undefined
         }
       })
       // Always include requester's own requests regardless of distance
