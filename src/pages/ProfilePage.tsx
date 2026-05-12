@@ -92,7 +92,12 @@ export default function ProfilePage() {
   function openEdit(r: any) {
     const d = new Date(r.needed_by)
     setEditReq({ ...r, _date: d.toISOString().split('T')[0], _time: d.toTimeString().slice(0,5) })
-    if (editShops.length === 0) api.shops().then(setEditShops).catch(() => {})
+    // Load shops near user, with generous radius so the linked shop shows up
+    const lat = (profile as any)?.lat, lng = (profile as any)?.lng
+    api.shops(lat || undefined, lng || undefined, 100)
+      .then(shops => {
+        setEditShops(shops)
+      }).catch(() => {})
   }
 
   const initials  = profile ? `${profile.first_name[0]}${profile.last_name[0]}`.toUpperCase() : '?'
@@ -279,6 +284,10 @@ export default function ProfilePage() {
                 value={editReq.shop_id || ''}
                 onChange={e => setEditReq((r:any) => ({ ...r, shop_id: e.target.value ? Number(e.target.value) : null, shop_name_free: e.target.value ? null : r.shop_name_free }))}>
                 <option value="">– Bekannten Shop wählen –</option>
+                {/* Show currently linked shop even if not in list */}
+                {editReq.shop_id && !editShops.find((s:any) => s.id === editReq.shop_id) && (
+                  <option value={editReq.shop_id}>{editReq.shop_name || `Shop #${editReq.shop_id}`}</option>
+                )}
                 {editShops.map((s: any) => <option key={s.id} value={s.id}>{s.name}{s.city ? ` (${s.city})` : ''}</option>)}
               </select>
               {!editReq.shop_id && (
