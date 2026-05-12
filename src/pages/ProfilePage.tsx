@@ -1,6 +1,8 @@
 import React, { useEffect, useState } from 'react'
+import { RequestModal } from '../components/RequestModal'
 import { useAuth } from '../AuthContext'
 import { api } from '../api'
+import { useUserLocation } from '../useUserLocation'
 import { format } from 'date-fns'
 import { de } from 'date-fns/locale'
 
@@ -43,7 +45,17 @@ export default function ProfilePage() {
     setLoading(false)
   }
 
+  const [modalReq, setModalReq] = useState<any | null>(null)
+  const [busy,     setBusy]     = useState<number | null>(null)
+
   function showFlash(msg: string) { setFlash(msg); setTimeout(() => setFlash(''), 3000) }
+
+  async function accept(id: number) {
+    setBusy(id)
+    try { await api.acceptRequest(id); showFlash('✓ Auftrag angenommen!'); setModalReq(null); loadData() }
+    catch (e: any) { showFlash('Fehler: ' + e.message) }
+    setBusy(null)
+  }
 
   async function deleteAccount() {
     if (!confirm('Konto wirklich löschen? Alle deine Anfragen und Daten werden dauerhaft gelöscht. Diese Aktion kann nicht rückgängig gemacht werden.')) return
@@ -206,9 +218,9 @@ export default function ProfilePage() {
                 {myReqs.map(r => {
                   const itemList = r.items?.length > 0 ? r.items : [{ text: r.item_text }]
                   return (
-                    <div key={r.id} className="tile">
+                    <div key={r.id} className="tile" style={{ cursor: 'pointer' }} onClick={() => setModalReq(r)}>
                       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', marginBottom: 6 }}>
-                        <div style={{ fontWeight: 600, fontSize: 14, flex: 1, marginRight: 8 }}>
+                        <div style={{ fontWeight: 700, fontSize: 14, flex: 1, marginRight: 8 }}>
                           {r.shop_name || r.shop_name_free || '–'}
                         </div>
                         <span className={`badge badge-${r.status}`}>{SL[r.status]}</span>
@@ -218,11 +230,11 @@ export default function ProfilePage() {
                         {itemList[0].quantity && <span style={{ color: 'var(--gray-400)', marginLeft: 5 }}>· {itemList[0].quantity}</span>}
                         {itemList.length > 1 && <span style={{ color: 'var(--gray-400)', marginLeft: 5 }}>+{itemList.length-1} weitere</span>}
                       </div>
-                      <div style={{ fontSize: 12, color: 'var(--gray-400)', marginBottom: 10 }}>
+                      <div style={{ fontSize: 12, color: 'var(--gray-400)', marginBottom: r.status === 'open' ? 8 : 0 }}>
                         🕐 {format(new Date(r.needed_by), "dd.MM.yy HH:mm 'Uhr'", { locale: de })}
                       </div>
                       {r.status === 'open' && (
-                        <div style={{ display: 'flex', gap: 6 }}>
+                        <div style={{ display: 'flex', gap: 6 }} onClick={e => e.stopPropagation()}>
                           <button className="btn btn-sm" style={{ flex: 1 }} onClick={() => openEdit(r)}>✏️ Bearbeiten</button>
                           <button className="btn btn-danger btn-sm" onClick={() => deleteReq(r.id)}>🗑</button>
                         </div>
@@ -241,10 +253,10 @@ export default function ProfilePage() {
                 : (
                   <div className="tile-grid">
                     {myAsgn.map(a => (
-                      <div key={a.id} className="tile">
-                        <div style={{ fontWeight: 600, fontSize: 14, marginBottom: 6 }}>{a.item_text}</div>
+                      <div key={a.id} className="tile" style={{ cursor: 'pointer' }} onClick={() => setModalReq({ ...a, status: a.req_status, shop_name: a.shop_name })}>
+                        <div style={{ fontWeight: 700, fontSize: 14, marginBottom: 4 }}>{a.shop_name || a.shop_name_free || '–'}</div>
+                        <div style={{ fontSize: 13, fontWeight: 500, marginBottom: 4 }}>{a.item_text}</div>
                         <div style={{ fontSize: 12, color: 'var(--gray-400)', display: 'flex', flexDirection: 'column', gap: 3 }}>
-                          <span>{a.shop_name || a.shop_name_free || '–'}</span>
                           <span>🕐 {format(new Date(a.needed_by), "dd.MM.yy HH:mm 'Uhr'", { locale: de })}</span>
                         </div>
                         <div style={{ marginTop: 8 }}>
@@ -328,6 +340,17 @@ export default function ProfilePage() {
             <button className="btn btn-primary btn-full" onClick={saveEdit}>✓ Speichern</button>
           </div>
         </div>
+      )}
+    {/* Request detail modal */}
+      {modalReq && (
+        <RequestModal
+          r={modalReq}
+          canTake={false}
+          busy={busy === modalReq.id}
+          onAccept={() => accept(modalReq.id)}
+          onClose={() => setModalReq(null)}
+          currentUserId={profile?.id}
+        />
       )}
     </div>
   )
