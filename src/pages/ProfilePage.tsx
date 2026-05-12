@@ -13,6 +13,7 @@ export default function ProfilePage() {
   const [loading, setLoading] = useState(true)
   const [flash,   setFlash]   = useState('')
   const [editReq, setEditReq] = useState<any | null>(null)
+  const [editShops, setEditShops] = useState<any[]>([])
   const [tab,     setTab]     = useState<'requests'|'profile'>('requests')
 
   // Profile edit state
@@ -81,7 +82,8 @@ export default function ProfilePage() {
         item_text: (editReq.items||[]).map((i:any)=>i.text).join(', '),
         needed_by: new Date(`${editReq._date}T${editReq._time}:00`).toISOString(),
         delivery_address: editReq.delivery_address,
-        shop_name_free: editReq.shop_name_free,
+        shop_id: editReq.shop_id || null,
+        shop_name_free: editReq.shop_name_free || null,
       })
       setEditReq(null); loadData(); showFlash('✓ Anfrage gespeichert')
     } catch (e: any) { showFlash('Fehler: ' + e.message) }
@@ -90,6 +92,7 @@ export default function ProfilePage() {
   function openEdit(r: any) {
     const d = new Date(r.needed_by)
     setEditReq({ ...r, _date: d.toISOString().split('T')[0], _time: d.toTimeString().slice(0,5) })
+    if (editShops.length === 0) api.shops().then(setEditShops).catch(() => {})
   }
 
   const initials  = profile ? `${profile.first_name[0]}${profile.last_name[0]}`.toUpperCase() : '?'
@@ -271,8 +274,17 @@ export default function ProfilePage() {
               </button>
             </div>
             <div className="form-group">
-              <label className="form-label">Shop (Freitext)</label>
-              <input className="form-input" value={editReq.shop_name_free||''} onChange={e=>setEditReq((r:any)=>({...r,shop_name_free:e.target.value}))} />
+              <label className="form-label">Shop</label>
+              <select className="form-input" style={{ marginBottom: 6 }}
+                value={editReq.shop_id || ''}
+                onChange={e => setEditReq((r:any) => ({ ...r, shop_id: e.target.value ? Number(e.target.value) : null, shop_name_free: e.target.value ? null : r.shop_name_free }))}>
+                <option value="">– Bekannten Shop wählen –</option>
+                {editShops.map((s: any) => <option key={s.id} value={s.id}>{s.name}{s.city ? ` (${s.city})` : ''}</option>)}
+              </select>
+              {!editReq.shop_id && (
+                <input className="form-input" placeholder="Oder Freitext: Bäckerei Hiltner…"
+                  value={editReq.shop_name_free||''} onChange={e=>setEditReq((r:any)=>({...r,shop_name_free:e.target.value}))} />
+              )}
             </div>
             <div className="form-row">
               <div className="form-group">

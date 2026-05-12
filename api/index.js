@@ -215,12 +215,13 @@ module.exports = async function handler(req, res) {
       if (r.requester_id !== user?.id && !admin) return res.status(403).json({ error: 'Keine Berechtigung' })
       if (req.method === 'PATCH') {
         const update = {}
-        const { status, items, item_text, needed_by, delivery_address, shop_name_free } = req.body
+        const { status, items, item_text, needed_by, delivery_address, shop_id, shop_name_free } = req.body
         if (status !== undefined) update.status = status
         if (items  !== undefined) { update.items = items; update.item_text = items.map(i=>i.text).join(', ') }
         if (item_text !== undefined) update.item_text = item_text
         if (needed_by !== undefined) update.needed_by = needed_by
         if (delivery_address !== undefined) update.delivery_address = delivery_address
+        if (shop_id          !== undefined) update.shop_id          = shop_id
         if (shop_name_free   !== undefined) update.shop_name_free   = shop_name_free
         const { data } = await sb().from('requests').update(update).eq('id', id).select().single()
         return res.json(data)
