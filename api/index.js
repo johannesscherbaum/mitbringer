@@ -1,8 +1,17 @@
 const { createClient } = require('@supabase/supabase-js')
 
 function sb() {
-  return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)
+  return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY, {
+    auth: { persistSession: false, autoRefreshToken: false }
+  })
 }
+
+// Service client always bypasses RLS
+const _sb = createClient(
+  process.env.SUPABASE_URL || '',
+  process.env.SUPABASE_SERVICE_KEY || '',
+  { auth: { persistSession: false, autoRefreshToken: false } }
+)
 
 function distKm(lat1, lng1, lat2, lng2) {
   const R = 6371, dLat = (lat2-lat1)*Math.PI/180, dLng = (lng2-lng1)*Math.PI/180
@@ -174,11 +183,13 @@ module.exports = async function handler(req, res) {
         reqUids.length ? sb().from('profiles').select('id,first_name,last_name,email,phone').in('id', reqUids) : Promise.resolve({ data: [] }),
         sb().from('assignments').select('request_id,bringer_id').in('request_id', reqIds)
       ])
+      console.log('DEBUG profiles:', JSON.stringify(profilesRes?.data), 'reqUids:', reqUids)
+      console.log('DEBUG asgns:', JSON.stringify(asgnsRes?.data))
 
       // Load bringer profiles separately
       const bringerIds = [...new Set((asgnsRes.data||[]).map(a=>a.bringer_id).filter(Boolean))]
       const bringersRes = bringerIds.length
-        ? await sb().from('profiles').select('id,first_name,last_name,phone').in('id', bringerIds)
+        ? await _sb.from('profiles').select('id,first_name,last_name,phone').in('id', bringerIds)
         : { data: [] }
 
       const shopMap    = Object.fromEntries((shopsRes.data||[]).map(s=>[s.id,s]))
