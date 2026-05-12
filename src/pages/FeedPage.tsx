@@ -12,8 +12,9 @@ function RequestModal({ r, canTake, busy, onAccept, onClose, currentUserId }: {
   r: any; canTake: boolean; busy: boolean; onAccept: () => void; onClose: () => void; currentUserId?: number
 }) {
   const isRequester = currentUserId === r.requester_id
-  const isBringer   = r.status === 'assigned' && r.bringer_id != null
-  const showContact = r.status === 'assigned' && (isRequester || !canTake)
+  const isBringer   = r.status === 'assigned' && r.bringer_id === currentUserId
+  // Show contact only to the bringer (who accepted) or the requester
+  const showContact = r.status === 'assigned' && (isRequester || isBringer)
   const itemList2: any[] = r.items?.length > 0 ? r.items : [{ text: r.item_text }]
   const [checked, setChecked] = useState<boolean[]>(() => itemList2.map(() => false))
   const allChecked = checked.every(Boolean)
@@ -118,15 +119,15 @@ function RequestModal({ r, canTake, busy, onAccept, onClose, currentUserId }: {
               <span>
                 📬 {r.delivery_address}
                 {showContact && r.requester_first && (
-                  <strong style={{ color: 'var(--gray-900)', marginLeft: 6 }}>
-                    → {r.requester_first} {r.requester_last}
-                    {r.requester_phone && (
-                      <a href={`tel:${r.requester_phone}`} style={{ color: 'var(--green)', marginLeft: 8 }}>
-                        📞 {r.requester_phone}
-                      </a>
-                    )}
+                  <strong style={{ marginLeft: 6, color: 'var(--gray-900)' }}>
+                    · {r.requester_first} {r.requester_last}
                   </strong>
                 )}
+              </span>
+            )}
+            {showContact && r.requester_first && r.requester_phone && (
+              <span>
+                📞 <a href={`tel:${r.requester_phone}`} style={{ color: 'var(--green)' }}>{r.requester_phone}</a>
               </span>
             )}
           </div>
