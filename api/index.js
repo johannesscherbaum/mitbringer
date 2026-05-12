@@ -155,67 +155,70 @@ module.exports = async function handler(req, res) {
 
       // Use raw SQL to get everything in one query with proper joins
       const statusFilter = all ? '' : `AND r.status IN ('open','assigned')`
-      const { data: rows, error } = await sb().rpc('get_requests_feed', {
-        p_lat: uLat, p_lng: uLng, p_radius: uRadius,
-        p_all: !!all, p_today: today
+      // Load requests
+      const { data: reqs } = await sb().from('requests')
+        .select('*')
+        .in('status', all ? ['open','assigned','completed','cancelled'] : ['open','assigned'])
+        .order('needed_by')
+      if (!reqs || reqs.length === 0) return res.json([])
+
+      // Parallel lookups
+      const shopIds = [...new Set(reqs.map(r=>r.shop_id).filter(Boolean))]
+      const catIds  = [...new Set(reqs.map(r=>r.category_id).filter(Boolean))]
+      const reqIds  = reqs.map(r=>r.id)
+      const reqUids = [...new Set(reqs.map(r=>r.requester_id))]
+
+      const [shopsRes, catsRes, profilesRes, asgnsRes] = await Promise.all([
+        shopIds.length ? sb().from('shops').select('id,name,lat,lng,opening_hours').in('id', shopIds) : Promise.resolve({ data: [] }),
+        catIds.length  ? sb().from('categories').select('id,name,icon').in('id', catIds) : Promise.resolve({ data: [] }),
+        reqUids.length ? sb().from('profiles').select('id,first_name,last_name,email,phone').in('id', reqUids) : Promise.resolve({ data: [] }),
+        sb().from('assignments').select('request_id,bringer_id').in('request_id', reqIds)
+      ])
+
+      // Load bringer profiles separately
+      const bringerIds = [...new Set((asgnsRes.data||[]).map(a=>a.bringer_id).filter(Boolean))]
+      const bringersRes = bringerIds.length
+        ? await sb().from('profiles').select('id,first_name,last_name,phone').in('id', bringerIds)
+        : { data: [] }
+
+      const shopMap    = Object.fromEntries((shopsRes.data||[]).map(s=>[s.id,s]))
+      const catMap     = Object.fromEntries((catsRes.data||[]).map(c=>[c.id,c]))
+      const profileMap = Object.fromEntries((profilesRes.data||[]).map(p=>[p.id,p]))
+      const bringerMap = Object.fromEntries((bringersRes.data||[]).map(p=>[p.id,p]))
+      const asgMap     = {}
+      for (const a of (asgnsRes.data||[])) asgMap[a.request_id] = a
+
+      let result = reqs.map(r => {
+        const shop  = shopMap[r.shop_id]
+        const cat   = catMap[r.category_id]
+        const prof  = profileMap[r.requester_id]
+        const asgn  = asgMap[r.id]
+        const bringer = bringerMap[asgn?.bringer_id]
+        const oh    = shop?.opening_hours
+        const dk    = (uLat&&uLng&&shop?.lat&&shop?.lng) ? parseFloat(distKm(uLat,uLng,shop.lat,shop.lng).toFixed(1)) : null
+        return {
+          ...r,
+          requester_first: prof?.first_name || null,
+          requester_last:  prof?.last_name  || null,
+          requester_email: prof?.email      || null,
+          requester_phone: prof?.phone      || null,
+          category_name:   cat?.name        || null,
+          category_icon:   cat?.icon        || null,
+          shop_name:       shop?.name       || null,
+          shop_hours_today: oh ? (oh[today]||null) : undefined,
+          bringer_id:    asgn?.bringer_id   || null,
+          bringer_first: bringer?.first_name || null,
+          bringer_last:  bringer?.last_name  || null,
+          bringer_phone: bringer?.phone      || null,
+          distance_km: dk
+        }
       })
 
-      if (error) {
-        // Fallback: manual join
-        const { data: reqs } = await sb().from('requests')
-          .select('*').in('status', all ? ['open','assigned','completed','cancelled'] : ['open','assigned'])
-          .order('needed_by')
-        if (!reqs || reqs.length === 0) return res.json([])
-
-        // Get related data manually
-        const shopIds = [...new Set(reqs.map(r=>r.shop_id).filter(Boolean))]
-        const catIds  = [...new Set(reqs.map(r=>r.category_id).filter(Boolean))]
-        const reqIds  = reqs.map(r=>r.id)
-        const reqUids = [...new Set(reqs.map(r=>r.requester_id))]
-
-        const [shopsRes, catsRes, profilesRes, asgnsRes] = await Promise.all([
-          shopIds.length ? sb().from('shops').select('id,name,lat,lng,opening_hours').in('id', shopIds) : { data: [] },
-          catIds.length  ? sb().from('categories').select('id,name,icon').in('id', catIds) : { data: [] },
-          reqUids.length ? sb().from('profiles').select('id,first_name,last_name,email,phone').in('id', reqUids) : { data: [] },
-          sb().from('assignments').select('request_id,bringer_id,profiles!bringer_id(first_name,last_name,phone)').in('request_id', reqIds)
-        ])
-
-        const shopMap    = Object.fromEntries((shopsRes.data||[]).map(s=>[s.id,s]))
-        const catMap     = Object.fromEntries((catsRes.data||[]).map(c=>[c.id,c]))
-        const profileMap = Object.fromEntries((profilesRes.data||[]).map(p=>[p.id,p]))
-        const asgMap     = {}
-        for (const a of (asgnsRes.data||[])) asgMap[a.request_id] = a
-
-        let result = reqs.map(r => {
-          const shop = shopMap[r.shop_id]
-          const cat  = catMap[r.category_id]
-          const prof = profileMap[r.requester_id]
-          const asgn = asgMap[r.id]
-          const oh   = shop?.opening_hours
-          const dk   = (uLat&&uLng&&shop?.lat&&shop?.lng) ? parseFloat(distKm(uLat,uLng,shop.lat,shop.lng).toFixed(1)) : null
-          return {
-            ...r,
-            requester_first: prof?.first_name, requester_last: prof?.last_name,
-            requester_email: prof?.email, requester_phone: prof?.phone,
-            category_name: cat?.name, category_icon: cat?.icon,
-            shop_name: shop?.name,
-            shop_hours_today: oh ? (oh[today]||null) : undefined,
-            bringer_id: asgn?.bringer_id||null,
-            bringer_first: asgn?.profiles?.first_name||null,
-            bringer_last: asgn?.profiles?.last_name||null,
-            bringer_phone: asgn?.profiles?.phone||null,
-            distance_km: dk
-          }
-        })
-
-        if (uLat && uLng) {
-          result = result.filter(r => r.requester_id === currentUserId || r.distance_km == null || r.distance_km <= uRadius)
-          result.sort((a,b) => (a.distance_km??999)-(b.distance_km??999))
-        }
-        return res.json(result)
+      if (uLat && uLng) {
+        result = result.filter(r => r.requester_id === currentUserId || r.distance_km == null || r.distance_km <= uRadius)
+        result.sort((a,b) => (a.distance_km??999)-(b.distance_km??999))
       }
-
-      return res.json(rows || [])
+      return res.json(result)
     }
 
     const user = await getUser(req)
