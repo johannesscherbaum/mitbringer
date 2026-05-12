@@ -149,55 +149,73 @@ module.exports = async function handler(req, res) {
       const uLat = lat ? parseFloat(lat) : null
       const uLng = lng ? parseFloat(lng) : null
       const uRadius = radius ? parseFloat(radius) : 999
-
-      let query = sb().from('requests')
-        .select('*, profiles!requester_id(first_name,last_name,email,phone), categories(name,icon), shops(name,lat,lng,opening_hours)')
-        .order('needed_by')
-      if (!all) query = query.in('status', ['open','assigned'])
-      const { data: reqs } = await query
-      if (!reqs) return res.json([])
-
-      const reqIds = reqs.map(r => r.id)
-      const { data: asgns } = await sb().from('assignments')
-        .select('request_id,bringer_id,profiles!bringer_id(first_name,last_name,phone)')
-        .in('request_id', reqIds)
-      const asgMap = {}
-      for (const a of (asgns||[])) asgMap[a.request_id] = a
-
       const today = DAY_KEYS[new Date().getDay()]
       const currentUser = await getUser(req)
       const currentUserId = currentUser?.id
 
-      let rows = reqs.map(r => {
-        const a = asgMap[r.id]
-        const shopData = r.shops
-        const oh = shopData?.opening_hours
-        return {
-          ...r,
-          requester_first: r.profiles?.first_name, requester_last: r.profiles?.last_name,
-          requester_email: r.profiles?.email,       requester_phone: r.profiles?.phone,
-          category_name:   r.categories?.name,      category_icon:   r.categories?.icon,
-          shop_name:       shopData?.name,
-          shop_hours_today: oh ? (oh[today]||null) : undefined,
-          bringer_id:    a?.bringer_id||null,
-          bringer_first: a?.profiles?.first_name||null,
-          bringer_last:  a?.profiles?.last_name||null,
-          bringer_phone: a?.profiles?.phone||null,
-          distance_km: (uLat&&uLng&&shopData?.lat&&shopData?.lng)
-            ? parseFloat(distKm(uLat,uLng,shopData.lat,shopData.lng).toFixed(1)) : null,
-          profiles: undefined, categories: undefined, shops: undefined
-        }
+      // Use raw SQL to get everything in one query with proper joins
+      const statusFilter = all ? '' : `AND r.status IN ('open','assigned')`
+      const { data: rows, error } = await sb().rpc('get_requests_feed', {
+        p_lat: uLat, p_lng: uLng, p_radius: uRadius,
+        p_all: !!all, p_today: today
       })
 
-      if (uLat && uLng) {
-        rows = rows.filter(r =>
-          r.requester_id === currentUserId ||
-          r.distance_km == null ||
-          r.distance_km <= uRadius
-        )
-        rows.sort((a,b) => (a.distance_km??999)-(b.distance_km??999))
+      if (error) {
+        // Fallback: manual join
+        const { data: reqs } = await sb().from('requests')
+          .select('*').in('status', all ? ['open','assigned','completed','cancelled'] : ['open','assigned'])
+          .order('needed_by')
+        if (!reqs || reqs.length === 0) return res.json([])
+
+        // Get related data manually
+        const shopIds = [...new Set(reqs.map(r=>r.shop_id).filter(Boolean))]
+        const catIds  = [...new Set(reqs.map(r=>r.category_id).filter(Boolean))]
+        const reqIds  = reqs.map(r=>r.id)
+        const reqUids = [...new Set(reqs.map(r=>r.requester_id))]
+
+        const [shopsRes, catsRes, profilesRes, asgnsRes] = await Promise.all([
+          shopIds.length ? sb().from('shops').select('id,name,lat,lng,opening_hours').in('id', shopIds) : { data: [] },
+          catIds.length  ? sb().from('categories').select('id,name,icon').in('id', catIds) : { data: [] },
+          reqUids.length ? sb().from('profiles').select('id,first_name,last_name,email,phone').in('id', reqUids) : { data: [] },
+          sb().from('assignments').select('request_id,bringer_id,profiles!bringer_id(first_name,last_name,phone)').in('request_id', reqIds)
+        ])
+
+        const shopMap    = Object.fromEntries((shopsRes.data||[]).map(s=>[s.id,s]))
+        const catMap     = Object.fromEntries((catsRes.data||[]).map(c=>[c.id,c]))
+        const profileMap = Object.fromEntries((profilesRes.data||[]).map(p=>[p.id,p]))
+        const asgMap     = {}
+        for (const a of (asgnsRes.data||[])) asgMap[a.request_id] = a
+
+        let result = reqs.map(r => {
+          const shop = shopMap[r.shop_id]
+          const cat  = catMap[r.category_id]
+          const prof = profileMap[r.requester_id]
+          const asgn = asgMap[r.id]
+          const oh   = shop?.opening_hours
+          const dk   = (uLat&&uLng&&shop?.lat&&shop?.lng) ? parseFloat(distKm(uLat,uLng,shop.lat,shop.lng).toFixed(1)) : null
+          return {
+            ...r,
+            requester_first: prof?.first_name, requester_last: prof?.last_name,
+            requester_email: prof?.email, requester_phone: prof?.phone,
+            category_name: cat?.name, category_icon: cat?.icon,
+            shop_name: shop?.name,
+            shop_hours_today: oh ? (oh[today]||null) : undefined,
+            bringer_id: asgn?.bringer_id||null,
+            bringer_first: asgn?.profiles?.first_name||null,
+            bringer_last: asgn?.profiles?.last_name||null,
+            bringer_phone: asgn?.profiles?.phone||null,
+            distance_km: dk
+          }
+        })
+
+        if (uLat && uLng) {
+          result = result.filter(r => r.requester_id === currentUserId || r.distance_km == null || r.distance_km <= uRadius)
+          result.sort((a,b) => (a.distance_km??999)-(b.distance_km??999))
+        }
+        return res.json(result)
       }
-      return res.json(rows)
+
+      return res.json(rows || [])
     }
 
     const user = await getUser(req)
