@@ -9,11 +9,12 @@ const SL: Record<string, string> = { open: 'Offen', assigned: 'Angenommen', comp
 
 // ── Request Detail Modal ──────────────────────────────────────────────────────
 function RequestModal({ r, canTake, busy, onAccept, onClose, currentUserId }: {
-  r: any; canTake: boolean; busy: boolean; onAccept: () => void; onClose: () => void; currentUserId?: number
+  r: any; canTake: boolean; busy: boolean; onAccept: () => void; onClose: () => void; currentUserId?: string
 }) {
-  const isRequester = currentUserId === r.requester_id
-  const isBringer   = r.status === 'assigned' && r.bringer_id === currentUserId
-  // Show contact only to the bringer (who accepted) or the requester
+  // String comparison (IDs from Supabase are UUIDs as strings)
+  const isRequester = String(currentUserId) === String(r.requester_id)
+  const isBringer   = r.status === 'assigned' && String(currentUserId) === String(r.bringer_id)
+  // Show contact to both parties once assigned
   const showContact = r.status === 'assigned' && (isRequester || isBringer)
   const itemList2: any[] = r.items?.length > 0 ? r.items : [{ text: r.item_text }]
   const [checked, setChecked] = useState<boolean[]>(() => itemList2.map(() => false))
@@ -116,18 +117,16 @@ function RequestModal({ r, canTake, busy, onAccept, onClose, currentUserId }: {
             <span>🕐 {format(new Date(r.needed_by), "EEE dd.MM.yyyy HH:mm 'Uhr'", { locale: de })}</span>
             {r.category_name && <span>{r.category_icon} {r.category_name}</span>}
             {r.delivery_address && (
-              <span>
-                📬 {r.delivery_address}
-                {showContact && r.requester_first && (
-                  <strong style={{ marginLeft: 6, color: 'var(--gray-900)' }}>
-                    · {r.requester_first} {r.requester_last}
-                  </strong>
-                )}
-              </span>
+              <span>📬 {r.delivery_address}</span>
             )}
-            {showContact && r.requester_first && r.requester_phone && (
-              <span>
-                📞 <a href={`tel:${r.requester_phone}`} style={{ color: 'var(--green)' }}>{r.requester_phone}</a>
+            {showContact && r.requester_first && (
+              <span style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: 'var(--green-light)', borderRadius: 6 }}>
+                <span>👤 <strong>{r.requester_first} {r.requester_last}</strong></span>
+                {r.requester_phone && (
+                  <a href={`tel:${r.requester_phone}`} style={{ color: 'var(--green-dark)', fontWeight: 600 }}>
+                    📞 {r.requester_phone}
+                  </a>
+                )}
               </span>
             )}
           </div>

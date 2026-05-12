@@ -2,7 +2,7 @@ import React, { createContext, useContext, useEffect, useState } from 'react'
 import { api, setToken, clearToken, hasToken } from './api'
 
 export interface UserProfile {
-  id: number
+  id: string
   email: string
   first_name: string
   last_name: string
