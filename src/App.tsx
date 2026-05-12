@@ -18,7 +18,7 @@ const NAV = [
 ]
 
 function Inner() {
-  const { profile, loading } = useAuth()
+  const { profile, loading, signOut } = useAuth()
   const [authMode, setAuthMode] = useState<'login' | 'register'>('login')
   const [page, setPage] = useState<Page>('feed')
 
@@ -51,6 +51,9 @@ function Inner() {
           <div className="navbar-user">
             <div className="avatar" style={{ width: 28, height: 28, fontSize: 11 }}>{initials}</div>
             <span>{profile.first_name} {profile.last_name}</span>
+            <button className="btn btn-sm btn-danger" onClick={signOut} style={{ marginLeft: 8 }}>
+              Abmelden
+            </button>
           </div>
         </div>
       </nav>
