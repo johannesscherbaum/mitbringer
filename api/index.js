@@ -324,6 +324,14 @@ module.exports = async function handler(req, res) {
     }
   }
 
+  // ── GET /debug ─────────────────────────────────────────────────────────────
+  if (route === 'debug') {
+    const { data: reqs } = await sb().from('requests').select('id, item_text, shop_id, status').limit(5)
+    const { data: shops } = await sb().from('shops').select('id, name, lat, lng').limit(3)
+    const { data: profiles } = await sb().from('profiles').select('id, first_name, lat, lng, radius_km').limit(5)
+    return res.json({ reqs, shops, profiles, env: { hasUrl: !!process.env.SUPABASE_URL, hasKey: !!process.env.SUPABASE_SERVICE_KEY } })
+  }
+
   return res.status(404).json({ error: 'Route nicht gefunden' })
 
   } catch(err) {
