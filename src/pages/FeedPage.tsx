@@ -12,6 +12,7 @@ function RequestModal({ r, canTake, busy, onAccept, onClose, currentUserId }: {
   r: any; canTake: boolean; busy: boolean; onAccept: () => void; onClose: () => void; currentUserId?: string
 }) {
   // String comparison (IDs from Supabase are UUIDs as strings)
+  console.log('Modal debug:', { currentUserId, requester_id: r.requester_id, bringer_id: r.bringer_id, status: r.status, requester_first: r.requester_first })
   const isRequester = String(currentUserId) === String(r.requester_id)
   const isBringer   = r.status === 'assigned' && String(currentUserId) === String(r.bringer_id)
   // Show contact to both parties once assigned
