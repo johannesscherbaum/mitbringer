@@ -3,15 +3,27 @@ import { UserProfile } from './AuthContext'
 
 const FALLBACK = { lat: 49.4401, lng: 11.8626 } // Amberg
 
+function coordsFromProfile(profile: UserProfile | null) {
+  if (!profile) return null
+  const lat = (profile as any).lat
+  const lng = (profile as any).lng
+  if (lat && lng) return { lat: Number(lat), lng: Number(lng) }
+  return null
+}
+
 export function useUserLocation(profile: UserProfile | null) {
-  const [location, setLocation] = useState<{ lat: number; lng: number }>(FALLBACK)
+  // Initialize directly from profile if coords available — no delay
+  const [location, setLocation] = useState<{ lat: number; lng: number }>(
+    () => coordsFromProfile(profile) ?? FALLBACK
+  )
 
   useEffect(() => {
     if (!profile) return
 
-    // 1. Profile already has coords — use immediately
-    if ((profile as any).lat && (profile as any).lng) {
-      setLocation({ lat: (profile as any).lat, lng: (profile as any).lng })
+    // 1. Profile has coords — use immediately
+    const coords = coordsFromProfile(profile)
+    if (coords) {
+      setLocation(coords)
       return
     }
 
