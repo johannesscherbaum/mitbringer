@@ -2,7 +2,23 @@
   "buildCommand": "npm run build",
   "outputDirectory": "dist",
   "rewrites": [
-    { "source": "/api/(.*)", "destination": "/api/index" },
-    { "source": "/(.*)", "destination": "/index.html" }
+    { "source": "/api/register",          "destination": "/api/index?route=register" },
+    { "source": "/api/login",             "destination": "/api/index?route=login" },
+    { "source": "/api/me",                "destination": "/api/index?route=me" },
+    { "source": "/api/categories",        "destination": "/api/index?route=categories" },
+    { "source": "/api/shops/:id",         "destination": "/api/index?route=shops&id=:id" },
+    { "source": "/api/shops",             "destination": "/api/index?route=shops" },
+    { "source": "/api/requests/:id",      "destination": "/api/index?route=requests&id=:id" },
+    { "source": "/api/requests",          "destination": "/api/index?route=requests" },
+    { "source": "/api/assignments",       "destination": "/api/index?route=assignments" },
+    { "source": "/api/my/requests",       "destination": "/api/index?route=my&sub=requests" },
+    { "source": "/api/my/assignments",    "destination": "/api/index?route=my&sub=assignments" },
+    { "source": "/api/fetch-website",     "destination": "/api/index?route=fetch-website" },
+    { "source": "/api/admin/stats",       "destination": "/api/index?route=admin&sub=stats" },
+    { "source": "/api/admin/users/:id",   "destination": "/api/index?route=admin&sub=users&id=:id" },
+    { "source": "/api/admin/users",       "destination": "/api/index?route=admin&sub=users" },
+    { "source": "/api/admin/requests",    "destination": "/api/index?route=admin&sub=requests" },
+    { "source": "/api/debug",             "destination": "/api/index?route=debug" },
+    { "source": "/(.*)",                  "destination": "/index.html" }
   ]
 }

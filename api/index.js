@@ -1,9 +1,8 @@
 const { createClient } = require('@supabase/supabase-js')
 
-const SUPABASE_URL = process.env.SUPABASE_URL
-const SERVICE_KEY  = process.env.SUPABASE_SERVICE_KEY
-
-function sb() { return createClient(SUPABASE_URL, SERVICE_KEY) }
+function sb() {
+  return createClient(process.env.SUPABASE_URL, process.env.SUPABASE_SERVICE_KEY)
+}
 
 function distKm(lat1, lng1, lat2, lng2) {
   const R = 6371, dLat = (lat2-lat1)*Math.PI/180, dLng = (lng2-lng1)*Math.PI/180
@@ -31,13 +30,22 @@ module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Headers', 'Content-Type,Authorization')
   if (req.method === 'OPTIONS') return res.status(200).end()
 
-  const url   = req.url.replace(/^\/api/, '').split('?')[0]
-  const parts = url.split('/').filter(Boolean)
-  const route = parts[0]
+  // Route is passed as query param by vercel.json rewrites
+  const route = req.query.route || ''
+  const id    = req.query.id    || ''
+  const sub   = req.query.sub   || ''
 
   try {
 
-  // ── POST /register ──────────────────────────────────────────────────────────
+  // ── DEBUG ─────────────────────────────────────────────────────────────────
+  if (route === 'debug') {
+    const { data: reqs }     = await sb().from('requests').select('id,item_text,shop_id,status').limit(5)
+    const { data: shops }    = await sb().from('shops').select('id,name,lat,lng').limit(3)
+    const { data: profiles } = await sb().from('profiles').select('id,first_name,lat,lng,radius_km').limit(5)
+    return res.json({ reqs, shops, profiles, env: { hasUrl: !!process.env.SUPABASE_URL, hasKey: !!process.env.SUPABASE_SERVICE_KEY } })
+  }
+
+  // ── REGISTER ──────────────────────────────────────────────────────────────
   if (route === 'register' && req.method === 'POST') {
     const { email, password, first_name, last_name, role, address, city, postal_code, radius_km, lat, lng, phone } = req.body
     if (!email || !password || !first_name || !last_name) return res.status(400).json({ error: 'Pflichtfelder fehlen' })
@@ -53,7 +61,7 @@ module.exports = async function handler(req, res) {
     return res.json({ token: session.session.access_token, user: profile })
   }
 
-  // ── POST /login ─────────────────────────────────────────────────────────────
+  // ── LOGIN ─────────────────────────────────────────────────────────────────
   if (route === 'login' && req.method === 'POST') {
     const { email, password } = req.body
     const { data, error } = await sb().auth.signInWithPassword({ email, password })
@@ -62,7 +70,7 @@ module.exports = async function handler(req, res) {
     return res.json({ token: data.session.access_token, user: profile })
   }
 
-  // ── GET/PATCH /me ────────────────────────────────────────────────────────────
+  // ── ME ────────────────────────────────────────────────────────────────────
   if (route === 'me') {
     const user = await getUser(req)
     if (!user) return res.status(401).json({ error: 'Nicht eingeloggt' })
@@ -74,55 +82,47 @@ module.exports = async function handler(req, res) {
       const fields = ['radius_km','address','city','postal_code','lat','lng','phone']
       const update = {}
       for (const f of fields) if (req.body[f] !== undefined) update[f] = req.body[f] || null
+      if (req.body.radius_km !== undefined) update.radius_km = req.body.radius_km
       const { data } = await sb().from('profiles').update(update).eq('id', user.id).select().single()
       return res.json(data)
     }
   }
 
-  // ── GET /categories ──────────────────────────────────────────────────────────
+  // ── CATEGORIES ────────────────────────────────────────────────────────────
   if (route === 'categories' && req.method === 'GET') {
     const { data } = await sb().from('categories').select('*').order('sort_order')
     return res.json(data || [])
   }
 
-  // ── Shops ────────────────────────────────────────────────────────────────────
+  // ── SHOPS ─────────────────────────────────────────────────────────────────
   if (route === 'shops') {
-    if (req.method === 'GET' && !parts[1]) {
+    if (req.method === 'GET' && !id) {
       const { lat, lng, radius } = req.query
       const uLat = lat ? parseFloat(lat) : null
       const uLng = lng ? parseFloat(lng) : null
       const uRadius = radius ? parseFloat(radius) : 20
 
       if (uLat && uLng) {
-        // Use PostGIS-style bounding box to pre-filter in DB before fetching
-        // 1 degree lat ≈ 111km, 1 degree lng ≈ 111km * cos(lat)
         const latDelta = uRadius / 111
         const lngDelta = uRadius / (111 * Math.cos(uLat * Math.PI / 180))
-        const minLat = uLat - latDelta, maxLat = uLat + latDelta
-        const minLng = uLng - lngDelta, maxLng = uLng + lngDelta
-
         const { data: shops } = await sb().from('shops').select('*')
-          .gte('lat', minLat).lte('lat', maxLat)
-          .gte('lng', minLng).lte('lng', maxLng)
-          .order('name')
-          .limit(2000)
-
+          .gte('lat', uLat - latDelta).lte('lat', uLat + latDelta)
+          .gte('lng', uLng - lngDelta).lte('lng', uLng + lngDelta)
+          .order('name').limit(2000)
         if (!shops) return res.json([])
-
         const result = shops
-          .map(s => ({ ...s, distance_km: s.lat && s.lng ? parseFloat(distKm(uLat, uLng, s.lat, s.lng).toFixed(1)) : null }))
+          .map(s => ({ ...s, distance_km: s.lat && s.lng ? parseFloat(distKm(uLat,uLng,s.lat,s.lng).toFixed(1)) : null }))
           .filter(s => s.distance_km == null || s.distance_km <= uRadius)
-          .sort((a, b) => (a.distance_km ?? 999) - (b.distance_km ?? 999))
-
+          .sort((a,b) => (a.distance_km??999)-(b.distance_km??999))
         return res.json(result)
       }
-
-      // No location — return first 500 alphabetically
       const { data: shops } = await sb().from('shops').select('*').order('name').limit(500)
       return res.json(shops || [])
     }
+
     const user = await getUser(req)
     if (!user) return res.status(401).json({ error: 'Nicht eingeloggt' })
+
     if (req.method === 'POST') {
       const { name, shop_type, address, city, lat, lng, phone, website, items, opening_hours } = req.body
       if (!name || !city) return res.status(400).json({ error: 'Name und Stadt sind Pflicht' })
@@ -130,8 +130,8 @@ module.exports = async function handler(req, res) {
       if (error) return res.status(500).json({ error: error.message })
       return res.json(data)
     }
-    if (req.method === 'PATCH' && parts[1]) {
-      const id = parts[1]
+
+    if (req.method === 'PATCH' && id) {
       const allowed = ['name','shop_type','address','city','lat','lng','phone','website','items','opening_hours']
       const update = {}
       for (const f of allowed) if (req.body[f] !== undefined) update[f] = req.body[f]
@@ -142,24 +142,32 @@ module.exports = async function handler(req, res) {
     }
   }
 
-  // ── Requests ─────────────────────────────────────────────────────────────────
+  // ── REQUESTS ──────────────────────────────────────────────────────────────
   if (route === 'requests') {
-    if (req.method === 'GET' && !parts[1]) {
-      const { lat, lng, all } = req.query
+    if (req.method === 'GET' && !id) {
+      const { lat, lng, radius, all } = req.query
+      const uLat = lat ? parseFloat(lat) : null
+      const uLng = lng ? parseFloat(lng) : null
+      const uRadius = radius ? parseFloat(radius) : 999
+
       let query = sb().from('requests')
         .select('*, profiles!requester_id(first_name,last_name,email,phone), categories(name,icon), shops(name,lat,lng,opening_hours)')
         .order('needed_by')
       if (!all) query = query.in('status', ['open','assigned'])
-      const { data: reqs, error: reqErr } = await query
-      if (reqErr) console.error('requests query error:', reqErr.message)
+      const { data: reqs } = await query
       if (!reqs) return res.json([])
+
       const reqIds = reqs.map(r => r.id)
       const { data: asgns } = await sb().from('assignments')
-        .select('request_id,bringer_id,profiles!bringer_id(first_name,last_name,phone)').in('request_id', reqIds)
+        .select('request_id,bringer_id,profiles!bringer_id(first_name,last_name,phone)')
+        .in('request_id', reqIds)
       const asgMap = {}
       for (const a of (asgns||[])) asgMap[a.request_id] = a
+
       const today = DAY_KEYS[new Date().getDay()]
-      const uLat = lat ? parseFloat(lat) : null, uLng = lng ? parseFloat(lng) : null
+      const currentUser = await getUser(req)
+      const currentUserId = currentUser?.id
+
       let rows = reqs.map(r => {
         const a = asgMap[r.id]
         const shopData = r.shops
@@ -167,39 +175,44 @@ module.exports = async function handler(req, res) {
         return {
           ...r,
           requester_first: r.profiles?.first_name, requester_last: r.profiles?.last_name,
-          requester_email: r.profiles?.email, requester_phone: r.profiles?.phone,
-          category_name: r.categories?.name, category_icon: r.categories?.icon,
-          shop_name: shopData?.name,
+          requester_email: r.profiles?.email,       requester_phone: r.profiles?.phone,
+          category_name:   r.categories?.name,      category_icon:   r.categories?.icon,
+          shop_name:       shopData?.name,
           shop_hours_today: oh ? (oh[today]||null) : undefined,
-          bringer_id: a?.bringer_id||null, bringer_first: a?.profiles?.first_name||null,
-          bringer_last: a?.profiles?.last_name||null, bringer_phone: a?.profiles?.phone||null,
-          distance_km: (uLat&&uLng&&shopData?.lat&&shopData?.lng) ? parseFloat(distKm(uLat,uLng,shopData.lat,shopData.lng).toFixed(1)) : null,
+          bringer_id:    a?.bringer_id||null,
+          bringer_first: a?.profiles?.first_name||null,
+          bringer_last:  a?.profiles?.last_name||null,
+          bringer_phone: a?.profiles?.phone||null,
+          distance_km: (uLat&&uLng&&shopData?.lat&&shopData?.lng)
+            ? parseFloat(distKm(uLat,uLng,shopData.lat,shopData.lng).toFixed(1)) : null,
           profiles: undefined, categories: undefined, shops: undefined
         }
       })
-      // Filter by radius, always include own requests
-      const currentUser = await getUser(req)
-      const currentUserId = currentUser?.id
-      if (uLat&&uLng) {
+
+      if (uLat && uLng) {
         rows = rows.filter(r =>
           r.requester_id === currentUserId ||
           r.distance_km == null ||
           r.distance_km <= uRadius
         )
-        rows.sort((a,b)=>(a.distance_km??999)-(b.distance_km??999))
+        rows.sort((a,b) => (a.distance_km??999)-(b.distance_km??999))
       }
       return res.json(rows)
     }
+
     const user = await getUser(req)
     if (!user) return res.status(401).json({ error: 'Nicht eingeloggt' })
+
     if (req.method === 'POST') {
       const { items, item_text, category_id, shop_id, shop_name_free, needed_by, delivery_address } = req.body
       if (!needed_by) return res.status(400).json({ error: 'Pflichtfelder fehlen' })
       const itemsList = items?.length > 0 ? items : [{ text: item_text }]
       if (!itemsList[0]?.text) return res.status(400).json({ error: 'Mindestens ein Artikel benötigt' })
       const { data, error } = await sb().from('requests').insert({
-        requester_id: user.id, item_text: itemsList.map(i=>i.text).join(', '), items: itemsList,
-        category_id: category_id||null, shop_id: shop_id||null, shop_name_free: shop_name_free||null,
+        requester_id: user.id,
+        item_text: itemsList.map(i=>i.text).join(', '), items: itemsList,
+        category_id: category_id||null, shop_id: shop_id||null,
+        shop_name_free: shop_name_free||null,
         needed_by, delivery_address: delivery_address||null
       }).select().single()
       if (error) return res.status(500).json({ error: error.message })
@@ -213,19 +226,20 @@ module.exports = async function handler(req, res) {
       }
       return res.json(data)
     }
-    if (parts[1]) {
-      const id = parts[1]
+
+    if (id) {
       const { data: r } = await sb().from('requests').select('requester_id,status').eq('id', id).single()
       if (!r) return res.status(404).json({ error: 'Nicht gefunden' })
-      const admin = await isAdmin(user?.id)
-      if (r.requester_id !== user?.id && !admin) return res.status(403).json({ error: 'Keine Berechtigung' })
+      const admin = await isAdmin(user.id)
+      if (r.requester_id !== user.id && !admin) return res.status(403).json({ error: 'Keine Berechtigung' })
+
       if (req.method === 'PATCH') {
         const update = {}
         const { status, items, item_text, needed_by, delivery_address, shop_id, shop_name_free } = req.body
-        if (status !== undefined) update.status = status
-        if (items  !== undefined) { update.items = items; update.item_text = items.map(i=>i.text).join(', ') }
-        if (item_text !== undefined) update.item_text = item_text
-        if (needed_by !== undefined) update.needed_by = needed_by
+        if (status           !== undefined) update.status           = status
+        if (items            !== undefined) { update.items = items; update.item_text = items.map(i=>i.text).join(', ') }
+        if (item_text        !== undefined && !items) update.item_text = item_text
+        if (needed_by        !== undefined) update.needed_by        = needed_by
         if (delivery_address !== undefined) update.delivery_address = delivery_address
         if (shop_id          !== undefined) update.shop_id          = shop_id
         if (shop_name_free   !== undefined) update.shop_name_free   = shop_name_free
@@ -240,7 +254,7 @@ module.exports = async function handler(req, res) {
     }
   }
 
-  // ── POST /assignments ────────────────────────────────────────────────────────
+  // ── ASSIGNMENTS ───────────────────────────────────────────────────────────
   if (route === 'assignments' && req.method === 'POST') {
     const user = await getUser(req)
     if (!user) return res.status(401).json({ error: 'Nicht eingeloggt' })
@@ -255,21 +269,25 @@ module.exports = async function handler(req, res) {
     return res.json({ ok: true })
   }
 
-  // ── /my/* ────────────────────────────────────────────────────────────────────
+  // ── MY ────────────────────────────────────────────────────────────────────
   if (route === 'my') {
     const user = await getUser(req)
     if (!user) return res.status(401).json({ error: 'Nicht eingeloggt' })
-    if (parts[1] === 'requests') {
-      const { data } = await sb().from('requests').select('*, shops(name), categories(name)').eq('requester_id', user.id).order('created_at', { ascending: false })
+    if (sub === 'requests') {
+      const { data } = await sb().from('requests')
+        .select('*, shops(name), categories(name)')
+        .eq('requester_id', user.id).order('created_at', { ascending: false })
       return res.json((data||[]).map(r => ({ ...r, shop_name: r.shops?.name, category_name: r.categories?.name, shops: undefined, categories: undefined })))
     }
-    if (parts[1] === 'assignments') {
-      const { data } = await sb().from('assignments').select('*, requests(item_text,items,needed_by,status,shop_name_free,shops(name))').eq('bringer_id', user.id).order('created_at', { ascending: false })
+    if (sub === 'assignments') {
+      const { data } = await sb().from('assignments')
+        .select('*, requests(item_text,items,needed_by,status,shop_name_free,shops(name))')
+        .eq('bringer_id', user.id).order('created_at', { ascending: false })
       return res.json((data||[]).map(a => ({ ...a, item_text: a.requests?.item_text, needed_by: a.requests?.needed_by, req_status: a.requests?.status, shop_name: a.requests?.shops?.name, shop_name_free: a.requests?.shop_name_free, requests: undefined })))
     }
   }
 
-  // ── GET /fetch-website ───────────────────────────────────────────────────────
+  // ── FETCH-WEBSITE ─────────────────────────────────────────────────────────
   if (route === 'fetch-website' && req.method === 'GET') {
     const user = await getUser(req)
     if (!user) return res.status(401).json({ error: 'Nicht eingeloggt' })
@@ -285,12 +303,13 @@ module.exports = async function handler(req, res) {
     } catch { return res.json({ title: null, description: null, favicon: null, url }) }
   }
 
-  // ── /admin/* ──────────────────────────────────────────────────────────────────
+  // ── ADMIN ─────────────────────────────────────────────────────────────────
   if (route === 'admin') {
     const user = await getUser(req)
     if (!user) return res.status(401).json({ error: 'Nicht eingeloggt' })
     if (!await isAdmin(user.id)) return res.status(403).json({ error: 'Kein Zugriff' })
-    if (parts[1] === 'stats') {
+
+    if (sub === 'stats') {
       const [u, r, a, s] = await Promise.all([
         sb().from('profiles').select('*', { count: 'exact', head: true }),
         sb().from('requests').select('status'),
@@ -300,18 +319,17 @@ module.exports = async function handler(req, res) {
       const reqs = r.data||[]
       return res.json({ users: u.count, requests: reqs.length, open: reqs.filter(x=>x.status==='open').length, assigned: reqs.filter(x=>x.status==='assigned').length, completed: reqs.filter(x=>x.status==='completed').length, cancelled: reqs.filter(x=>x.status==='cancelled').length, assignments: a.count, shops: s.count })
     }
-    if (parts[1] === 'users' && req.method === 'GET') {
+    if (sub === 'users' && !id) {
       const { data } = await sb().from('profiles').select('*').order('created_at')
       return res.json(data||[])
     }
-    if (parts[1] === 'users' && parts[2] && req.method === 'PATCH') {
+    if (sub === 'users' && id && req.method === 'PATCH') {
       const { role } = req.body
       if (!['orderer','bringer','both','superadmin'].includes(role)) return res.status(400).json({ error: 'Ungültige Rolle' })
-      const { data } = await sb().from('profiles').update({ role }).eq('id', parts[2]).select().single()
+      const { data } = await sb().from('profiles').update({ role }).eq('id', id).select().single()
       return res.json(data)
     }
-    if (parts[1] === 'users' && parts[2] && req.method === 'DELETE') {
-      const id = parts[2]
+    if (sub === 'users' && id && req.method === 'DELETE') {
       if (id === user.id) return res.status(400).json({ error: 'Eigenen Account nicht löschbar' })
       await sb().from('assignments').delete().eq('bringer_id', id)
       await sb().from('requests').delete().eq('requester_id', id)
@@ -319,21 +337,15 @@ module.exports = async function handler(req, res) {
       await sb().auth.admin.deleteUser(id)
       return res.json({ ok: true })
     }
-    if (parts[1] === 'requests') {
-      const { data } = await sb().from('requests').select('*, profiles!requester_id(first_name,last_name,email), categories(name,icon), shops(name)').order('created_at', { ascending: false })
+    if (sub === 'requests') {
+      const { data } = await sb().from('requests')
+        .select('*, profiles!requester_id(first_name,last_name,email), categories(name,icon), shops(name)')
+        .order('created_at', { ascending: false })
       return res.json((data||[]).map(r => ({ ...r, requester_first: r.profiles?.first_name, requester_last: r.profiles?.last_name, requester_email: r.profiles?.email, category_name: r.categories?.name, category_icon: r.categories?.icon, shop_name: r.shops?.name, profiles: undefined, categories: undefined, shops: undefined })))
     }
   }
 
-  // ── GET /debug ─────────────────────────────────────────────────────────────
-  if (route === 'debug') {
-    const { data: reqs } = await sb().from('requests').select('id, item_text, shop_id, status').limit(5)
-    const { data: shops } = await sb().from('shops').select('id, name, lat, lng').limit(3)
-    const { data: profiles } = await sb().from('profiles').select('id, first_name, lat, lng, radius_km').limit(5)
-    return res.json({ reqs, shops, profiles, env: { hasUrl: !!process.env.SUPABASE_URL, hasKey: !!process.env.SUPABASE_SERVICE_KEY } })
-  }
-
-  return res.status(404).json({ error: 'Route nicht gefunden' })
+  return res.status(404).json({ error: 'Route nicht gefunden: ' + route })
 
   } catch(err) {
     console.error('API Error:', err)
