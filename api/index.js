@@ -52,6 +52,55 @@ async function loadProfiles(ids) {
 
 const DAY_KEYS = ['su','mo','tu','we','th','fr','sa']
 
+async function enrichRequests(reqs, uLat, uLng) {
+  const today   = DAY_KEYS[new Date().getDay()]
+  const shopIds = [...new Set(reqs.map(r=>r.shop_id).filter(Boolean))]
+  const catIds  = [...new Set(reqs.map(r=>r.category_id).filter(Boolean))]
+  const reqIds  = reqs.map(r=>r.id)
+  const reqUids = [...new Set(reqs.map(r=>r.requester_id).filter(Boolean))]
+
+  const { data: asgns } = await sb().from('assignments').select('request_id,bringer_id').in('request_id', reqIds)
+  const bringerIds = [...new Set((asgns||[]).map(a=>a.bringer_id).filter(Boolean))]
+  const allProfileIds = [...new Set([...reqUids, ...bringerIds])]
+
+  const [shopsRes, catsRes, profileMap] = await Promise.all([
+    shopIds.length ? sb().from('shops').select('id,name,lat,lng,opening_hours').in('id', shopIds) : Promise.resolve({ data: [] }),
+    catIds.length  ? sb().from('categories').select('id,name,icon').in('id', catIds) : Promise.resolve({ data: [] }),
+    loadProfiles(allProfileIds)
+  ])
+
+  const shopMap = Object.fromEntries((shopsRes.data||[]).map(s=>[s.id,s]))
+  const catMap  = Object.fromEntries((catsRes.data||[]).map(c=>[c.id,c]))
+  const asgMap  = {}
+  for (const a of (asgns||[])) asgMap[a.request_id] = a
+
+  return reqs.map(r => {
+    const shop    = shopMap[r.shop_id]
+    const cat     = catMap[r.category_id]
+    const reqP    = profileMap[r.requester_id]
+    const asgn    = asgMap[r.id]
+    const bringer = profileMap[asgn?.bringer_id]
+    const oh      = shop?.opening_hours
+    const dk      = (uLat&&uLng&&shop?.lat&&shop?.lng) ? parseFloat(distKm(uLat,uLng,shop.lat,shop.lng).toFixed(1)) : null
+    return {
+      ...r,
+      requester_first: reqP?.first_name    || null,
+      requester_last:  reqP?.last_name     || null,
+      requester_email: reqP?.email         || null,
+      requester_phone: reqP?.phone         || null,
+      category_name:   cat?.name           || null,
+      category_icon:   cat?.icon           || null,
+      shop_name:       shop?.name          || null,
+      shop_hours_today: oh ? (oh[today]||null) : undefined,
+      bringer_id:      asgn?.bringer_id    || null,
+      bringer_first:   bringer?.first_name || null,
+      bringer_last:    bringer?.last_name  || null,
+      bringer_phone:   bringer?.phone      || null,
+      distance_km: dk
+    }
+  })
+}
+
 module.exports = async function handler(req, res) {
   res.setHeader('Access-Control-Allow-Origin', '*')
   res.setHeader('Access-Control-Allow-Methods', 'GET,POST,PATCH,DELETE,OPTIONS')
@@ -181,52 +230,7 @@ module.exports = async function handler(req, res) {
       const { data: reqs } = await query
       if (!reqs || reqs.length === 0) return res.json([])
 
-      const shopIds = [...new Set(reqs.map(r=>r.shop_id).filter(Boolean))]
-      const catIds  = [...new Set(reqs.map(r=>r.category_id).filter(Boolean))]
-      const reqIds  = reqs.map(r=>r.id)
-      const reqUids = [...new Set(reqs.map(r=>r.requester_id).filter(Boolean))]
-
-      const { data: asgns } = await sb().from('assignments')
-        .select('request_id,bringer_id').in('request_id', reqIds)
-      const bringerIds = [...new Set((asgns||[]).map(a=>a.bringer_id).filter(Boolean))]
-      const allProfileIds = [...new Set([...reqUids, ...bringerIds])]
-
-      const [shopsRes, catsRes, profileMap] = await Promise.all([
-        shopIds.length ? sb().from('shops').select('id,name,lat,lng,opening_hours').in('id', shopIds).then(r=>r) : Promise.resolve({ data: [] }),
-        catIds.length  ? sb().from('categories').select('id,name,icon').in('id', catIds).then(r=>r) : Promise.resolve({ data: [] }),
-        loadProfiles(allProfileIds)
-      ])
-
-      const shopMap = Object.fromEntries((shopsRes.data||[]).map(s=>[s.id,s]))
-      const catMap  = Object.fromEntries((catsRes.data||[]).map(c=>[c.id,c]))
-      const asgMap  = {}
-      for (const a of (asgns||[])) asgMap[a.request_id] = a
-
-      let result = reqs.map(r => {
-        const shop    = shopMap[r.shop_id]
-        const cat     = catMap[r.category_id]
-        const reqP    = profileMap[r.requester_id]
-        const asgn    = asgMap[r.id]
-        const bringer = profileMap[asgn?.bringer_id]
-        const oh      = shop?.opening_hours
-        const dk      = (uLat&&uLng&&shop?.lat&&shop?.lng) ? parseFloat(distKm(uLat,uLng,shop.lat,shop.lng).toFixed(1)) : null
-        return {
-          ...r,
-          requester_first: reqP?.first_name    || null,
-          requester_last:  reqP?.last_name     || null,
-          requester_email: reqP?.email         || null,
-          requester_phone: reqP?.phone         || null,
-          category_name:   cat?.name           || null,
-          category_icon:   cat?.icon           || null,
-          shop_name:       shop?.name          || null,
-          shop_hours_today: oh ? (oh[today]||null) : undefined,
-          bringer_id:      asgn?.bringer_id    || null,
-          bringer_first:   bringer?.first_name || null,
-          bringer_last:    bringer?.last_name  || null,
-          bringer_phone:   bringer?.phone      || null,
-          distance_km: dk
-        }
-      })
+      let result = await enrichRequests(reqs, uLat, uLng)
 
       if (uLat && uLng) {
         result = result.filter(r => r.requester_id === currentUserId || r.distance_km == null || r.distance_km <= uRadius)
@@ -304,12 +308,17 @@ module.exports = async function handler(req, res) {
     const user = await getUser(req)
     if (!user) return res.status(401).json({ error: 'Nicht eingeloggt' })
     if (sub === 'requests') {
-      const { data } = await sb().from('requests').select('*, shops(name), categories(name)').eq('requester_id', user.id).order('created_at', { ascending: false })
-      return res.json((data||[]).map(r => ({ ...r, shop_name: r.shops?.name, category_name: r.categories?.name, shops: undefined, categories: undefined })))
+      const { data: reqs } = await sb().from('requests').select('*').eq('requester_id', user.id).order('created_at', { ascending: false })
+      if (!reqs || !reqs.length) return res.json([])
+      return res.json(await enrichRequests(reqs, null, null))
     }
     if (sub === 'assignments') {
-      const { data } = await sb().from('assignments').select('*, requests(item_text,items,needed_by,status,shop_name_free,shops(name))').eq('bringer_id', user.id).order('created_at', { ascending: false })
-      return res.json((data||[]).map(a => ({ ...a, item_text: a.requests?.item_text, needed_by: a.requests?.needed_by, req_status: a.requests?.status, shop_name: a.requests?.shops?.name, shop_name_free: a.requests?.shop_name_free, requests: undefined })))
+      const { data: asgns } = await sb().from('assignments').select('request_id').eq('bringer_id', user.id).order('created_at', { ascending: false })
+      if (!asgns || !asgns.length) return res.json([])
+      const reqIds = asgns.map(a => a.request_id)
+      const { data: reqs } = await sb().from('requests').select('*').in('id', reqIds)
+      if (!reqs || !reqs.length) return res.json([])
+      return res.json(await enrichRequests(reqs, null, null))
     }
   }
 
