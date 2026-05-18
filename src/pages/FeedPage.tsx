@@ -20,7 +20,7 @@ export default function FeedPage() {
   const [modalReq,     setModalReq]     = useState<any | null>(null)
   const [catFilter,    setCatFilter]    = useState('')
   const [shopFilter,   setShopFilter]   = useState('')
-  const [statusFilter, setStatusFilter] = useState<'all'|'open'>('open')
+  const [statusFilter, setStatusFilter] = useState<'all'|'open'|'assigned'>('open')
 
   const isAdmin = profile?.role === 'superadmin'
   const [showAll, setShowAll] = useState(false)
@@ -29,7 +29,7 @@ export default function FeedPage() {
 
   async function load() {
     setLoading(true)
-    try { setRows(await api.requests(userLoc.lat, userLoc.lng, showAll)) } catch {}
+    try { setRows(await api.requests(userLoc.lat, userLoc.lng, showAll, canBring)) } catch {}
     setLoading(false)
   }
 
@@ -43,10 +43,11 @@ export default function FeedPage() {
   const canBring = profile?.role === 'bringer' || profile?.role === 'both' || profile?.role === 'superadmin'
   const categories = [...new Set(rows.map(r => r.category_name).filter(Boolean))].sort()
   const shops      = [...new Set(rows.map(r => r.shop_name || r.shop_name_free).filter(Boolean))].sort()
-  // Only show open requests in feed; assigned are in profile only
   const filtered   = rows.filter(r => {
-    if (r.status !== 'open') return false
-    if (statusFilter !== 'all' && r.status !== statusFilter) return false
+    // Non-bringers only see open requests
+    if (!canBring && r.status !== 'open') return false
+    // Bringers can filter by status
+    if (canBring && statusFilter !== 'all' && r.status !== statusFilter) return false
     if (catFilter  && r.category_name !== catFilter) return false
     if (shopFilter && (r.shop_name || r.shop_name_free) !== shopFilter) return false
     return true
@@ -66,12 +67,15 @@ export default function FeedPage() {
 
       {/* Filters */}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14, alignItems: 'center' }}>
-        {(['all','open'] as const).map(s => (
-          <button key={s} className={`btn btn-sm${statusFilter === s ? ' btn-primary' : ''}`}
-            onClick={() => setStatusFilter(s)}>
-            {s === 'all' ? 'Alle' : SL[s]}
-          </button>
-        ))}
+        {/* Status filter — assigned only visible if user is involved */}
+        {canBring && (
+          <>
+            <button className={`btn btn-sm${statusFilter === 'open' ? ' btn-primary' : ''}`}
+              onClick={() => setStatusFilter('open')}>Offen</button>
+            <button className={`btn btn-sm${statusFilter === 'assigned' ? ' btn-primary' : ''}`}
+              onClick={() => setStatusFilter('assigned')}>Angenommen</button>
+          </>
+        )}
         <div style={{ width: 1, height: 20, background: 'var(--gray-200)', margin: '0 2px' }} />
         {categories.length > 0 && (
           <select className="form-input" style={{ width: 'auto', fontSize: 12, padding: '4px 8px' }}

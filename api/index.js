@@ -225,8 +225,9 @@ module.exports = async function handler(req, res) {
       const currentUser = await getUser(req)
       const currentUserId = currentUser?.id
 
+      const withAssigned = req.query.assigned === '1'
       let query = sb().from('requests').select('*').order('needed_by')
-      if (!all) query = query.eq('status', 'open')
+      if (!all) query = withAssigned ? query.in('status', ['open','assigned']) : query.eq('status', 'open')
       const { data: reqs } = await query
       if (!reqs || reqs.length === 0) return res.json([])
 
