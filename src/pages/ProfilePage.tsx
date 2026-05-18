@@ -1,5 +1,7 @@
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
+import supabase from '../supabase'
 import { RequestModal } from '../components/RequestModal'
+import { MfaManager } from '../components/MfaManager'
 import { useAuth } from '../AuthContext'
 import { api } from '../api'
 import { useUserLocation } from '../useUserLocation'
@@ -192,6 +194,8 @@ export default function ProfilePage() {
           </button>
 
           <div className="divider" style={{ marginTop: 24 }} />
+          <MfaManager />
+          <div className="divider" style={{ marginTop: 16 }} />
           <div style={{ textAlign: 'center' }}>
             <button className="btn btn-sm" style={{ color: 'var(--gray-400)', borderColor: 'var(--gray-200)', fontSize: 12 }}
               onClick={deleteAccount}>
