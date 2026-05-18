@@ -20,7 +20,7 @@ export default function FeedPage() {
   const [modalReq,     setModalReq]     = useState<any | null>(null)
   const [catFilter,    setCatFilter]    = useState('')
   const [shopFilter,   setShopFilter]   = useState('')
-  const [statusFilter, setStatusFilter] = useState<'all'|'open'|'assigned'>('all')
+  const [statusFilter, setStatusFilter] = useState<'all'|'open'>('open')
 
   const isAdmin = profile?.role === 'superadmin'
   const [showAll, setShowAll] = useState(false)
@@ -43,7 +43,9 @@ export default function FeedPage() {
   const canBring = profile?.role === 'bringer' || profile?.role === 'both' || profile?.role === 'superadmin'
   const categories = [...new Set(rows.map(r => r.category_name).filter(Boolean))].sort()
   const shops      = [...new Set(rows.map(r => r.shop_name || r.shop_name_free).filter(Boolean))].sort()
+  // Only show open requests in feed; assigned are in profile only
   const filtered   = rows.filter(r => {
+    if (r.status !== 'open') return false
     if (statusFilter !== 'all' && r.status !== statusFilter) return false
     if (catFilter  && r.category_name !== catFilter) return false
     if (shopFilter && (r.shop_name || r.shop_name_free) !== shopFilter) return false
@@ -59,13 +61,12 @@ export default function FeedPage() {
         <h2 style={{ fontSize: 20, fontWeight: 600 }}>Anfragen</h2>
         <div style={{ display: 'flex', gap: 12, fontSize: 13, color: 'var(--gray-400)' }}>
           <span style={{ color: 'var(--green)', fontWeight: 600 }}>{rows.filter(r=>r.status==='open').length} offen</span>
-          <span>{rows.filter(r=>r.status==='assigned').length} unterwegs</span>
         </div>
       </div>
 
       {/* Filters */}
       <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginBottom: 14, alignItems: 'center' }}>
-        {(['all','open','assigned'] as const).map(s => (
+        {(['all','open'] as const).map(s => (
           <button key={s} className={`btn btn-sm${statusFilter === s ? ' btn-primary' : ''}`}
             onClick={() => setStatusFilter(s)}>
             {s === 'all' ? 'Alle' : SL[s]}

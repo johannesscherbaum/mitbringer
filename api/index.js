@@ -226,7 +226,7 @@ module.exports = async function handler(req, res) {
       const currentUserId = currentUser?.id
 
       let query = sb().from('requests').select('*').order('needed_by')
-      if (!all) query = query.in('status', ['open','assigned'])
+      if (!all) query = query.eq('status', 'open')
       const { data: reqs } = await query
       if (!reqs || reqs.length === 0) return res.json([])
 
