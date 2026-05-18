@@ -4,6 +4,11 @@ import { de } from 'date-fns/locale'
 
 const SL: Record<string, string> = { open: 'Offen', assigned: 'Angenommen', completed: 'Erledigt', cancelled: 'Abgesagt' }
 
+// Hide house number for non-involved users: "Musterstr. 5, 92224 Amberg" → "Musterstr., 92224 Amberg"
+function maskHouseNumber(address: string): string {
+  return address.replace(/\s+\d+[a-zA-Z]?\s*,/, ',').trim()
+}
+
 export function RequestModal({ r, canTake, busy, onAccept, onClose, currentUserId }: {
   r: any; canTake: boolean; busy: boolean; onAccept: () => void; onClose: () => void; currentUserId?: string
 }) {
@@ -66,7 +71,9 @@ export function RequestModal({ r, canTake, busy, onAccept, onClose, currentUserI
           <div style={{ fontSize: 13, color: 'var(--gray-400)', display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 16 }}>
             <span>🕐 {format(new Date(r.needed_by), "EEE dd.MM.yyyy HH:mm 'Uhr'", { locale: de })}</span>
             {r.category_name && <span>{r.category_icon} {r.category_name}</span>}
-            {r.delivery_address && <span>📬 {r.delivery_address}</span>}
+            {r.delivery_address && (
+              <span>📬 {showContact ? r.delivery_address : maskHouseNumber(r.delivery_address)}</span>
+            )}
             {showContact && r.requester_first && (
               <span style={{ display: 'flex', alignItems: 'center', gap: 8, padding: '6px 10px', background: 'var(--green-light)', borderRadius: 6 }}>
                 <span>👤 <strong>{r.requester_first} {r.requester_last}</strong></span>
